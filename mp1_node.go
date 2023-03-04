@@ -26,6 +26,65 @@ var proposal_counter = 0
 var largest_agreed_priority = 0
 // tracks if messages are deliverable or not --> transaction:true for deliverable, false otherwise
 var deliverable = map[string]bool{}
+// priority queue of Message Structs 
+var pq = make(PriorityQueue, 0)
+
+// An Message is something we manage in a priority queue.
+type Message struct {
+	transaction string // The transaction; arbitrary.
+	priority int    // The priority of the message in the queue.
+	// The index is needed by update and is maintained by the heap.Interface methods.
+	index int // The index of the message in the heap.
+}
+
+// A PriorityQueue implements heap.Interface and holds Messages.
+type PriorityQueue []*Message
+
+func (pq PriorityQueue) Len() int { return len(pq) }
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	// We want Pop to give us the lowest, not highest, priority so we use less than here.
+	return pq[i].priority < pq[j].priority
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *PriorityQueue) Push(x any) {
+	n := len(*pq)
+	message := x.(*Message)
+	message.index = n
+	*pq = append(*pq, message)
+}
+
+func (pq *PriorityQueue) Pop() any {
+	old := *pq
+	n := len(old)
+	message := old[n-1]
+	old[n-1] = nil  // avoid memory leak
+	message.index = -1 // for safety
+	*pq = old[0 : n-1]
+	return message
+}
+
+func (pq *PriorityQueue) Peek() any {
+	return pq[0]
+}
+
+// update modifies the priority and value of an Message in the queue.
+func (pq *PriorityQueue) update(message *Message, priority int) {
+	message.priority = priority
+	heap.Fix(pq, message.index)
+}
+
+func (pq *PriorityQueue) getQueue() {
+	return *pq
+}
+
+// ______________________________________________________________________________
 
 
 // Prints out all account balances in alphabetic order
@@ -191,6 +250,7 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 
 		if (request_type == "REQUEST_FOR_PROPOSALS") {
 			priority_proposal = math.Max(proposal_counter, largest_agreed_priority) + 1
+			proposal_counter = priority_proposal
 			// REPLY_FOR_PROPOSAL <sender node_name> <transaction> <proposed priority> 
 			other_connections[sender_node].Write([]byte(f.Sprintf("%s %s %s %d\r\n", "REPLY_FOR_PROPOSAL", node_name, transaction, priority_proposal)))
 			
@@ -198,11 +258,15 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			for i := 3; i < len(split)-2; i++ {
 				transaction += split[i]
 			}
-			// TODO
-			// store message in priority queue - bro how do we do a priority queue 
-			// • ordered by priority (proposed or agreed)
 
-			// • mark message as undeliverable
+			// store message in priority queue ordered by priority (proposed or agreed)
+			tx := &Message{
+				value: transaction,
+				priority: priority_proposal,
+			}
+			heap.Push(&pq, tx)
+
+			// mark message as undeliverable
 			deliverable[transaction] = false
 
 			// REMULTICAST IT
@@ -211,14 +275,38 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			}  
 		} else if (request_type == "AGREED_SEQ_FOR_PROPOSAL") {
 
+			// AGREED_SEQ_FOR_PROPOSAL <sender node_name> <transaction string> <agreed seq number>
+			agreed_priority := split[len(split)-1]
+			transaction := split[2] 
+			for i := 3; i < len(split)-2; i++ {
+				transaction += split[i]
+			}
+
+			// update largest_agreed_priority
+			largest_agreed_priority = Math.max(largest_agreed_priority, agreed_priority)
+
 			// TODO 
 			// Upon receiving agreed (final) priority for a message ‘m’
-			// • Update m’s priority to final, and accordingly reorder messages in queue.
+			// Update m’s priority to final, and accordingly reorder messages in queue.
+			all_open_txs = pq.getQueue()
+			for tx := range all_open_txs {
+				if (tx.transaction == transaction) {
+					pq.update(tx, agreed_priority)
+				}
+			}
+
+			// pq.update(item, item.value, 5) 
 
 			// • mark the message m as deliverable.
 			deliverable[transaction] = true
 
 			// • deliver any deliverable messages at front of priority queue
+			tx := heap.Peek(&pq).(*Message)
+			for deliverable[tx] {
+				item := heap.Pop(&pq).(*Message)
+				handleTransaction(item.transaction)
+				tx = heap.Peek(&pq).(*Message)
+			}
 
 			// REMULTICAST IT
 			for i, conn := range connections {
@@ -244,6 +332,9 @@ func main() {
 		f.Fprintln(os.Stderr, "too few arguments")
 		os.Exit(1)
 	}
+
+	// initialize priority queue 
+	heap.Init(&pq)
 
 	identifier := os.Args[1]
 	config_file := os.Args[2]
