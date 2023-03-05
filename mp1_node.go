@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	f "fmt"
 	"strings"
 	"sort"
 	"strconv"
@@ -9,6 +9,8 @@ import (
 	"net"
 	"math"
 	"container/heap"
+	"bufio"
+	"time"
 ) 
 
 // tracks account balances --> account_number:balance
@@ -86,6 +88,13 @@ func (pq *PriorityQueue) getQueue() {
 
 // ______________________________________________________________________________
 
+// Max returns the larger of x or y.
+func Max(x, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}
 
 // Prints out all account balances in alphabetic order
 func printAccountBalances() {
@@ -96,16 +105,16 @@ func printAccountBalances() {
     }
     sort.Strings(keys)
  
-	fmt.Print("BALANCES ")
+	f.Print("BALANCES ")
     for _, k := range keys {
-        fmt.Print(k, ":", accounts[k], " ")
+        f.Print(k, ":", accounts[k], " ")
     }
-	fmt.Println()
+	f.Println()
 }
 
 // Handles DEPOSIT and TRANSFER transactions 
 // Returns true if this was a valid transaction, else returns false
-func bool handleTransaction(transaction string) {
+func handleTransaction(transaction string) (bool) {
 	split := strings.Split(transaction, " ")
 	action := split[0]
 	
@@ -150,13 +159,13 @@ func bool handleTransaction(transaction string) {
 }
 
 // Parse config file and return all lines in array
-func parseConfigFile(identifier string, config_file string) {
+func parseConfigFile(identifier string, config_file string) ([]string) {
 	// first, parse config_file
 	// https://golangdocs.com/golang-read-file-line-by-line
 	readFile, err := os.Open(config_file)
   
     if err != nil {
-        fmt.Println(err)
+        f.Println(err)
     }
 
     fileScanner := bufio.NewScanner(readFile)
@@ -190,10 +199,10 @@ func sendTransactionData(node_name string, connections []net.Conn) {
 
 		// ISIS ALG IMPLEMENTATION
 		num_nodes := len(connections)
-		proposals[transaction] = {}
+		proposals[transaction] = []int{}
 		
 		// MULTICAST MESSAGE TO ALL NODES 
-		for i, conn := range connections {
+		for _, conn := range connections {
 			conn.Write([]byte(f.Sprintf("%s %s %s\r\n", "REQUEST_FOR_PROPOSALS", node_name, transaction)))
 		} 
 
@@ -203,17 +212,17 @@ func sendTransactionData(node_name string, connections []net.Conn) {
 		// if they don't arrive, that node may be dead
 		current_time := time.Now()
 		timeout_time := current_time.Add(time.Second * 10) //adds 10 seconds to current time
-		while (time.Now() != timeout_time && len(proposals[transaction]) != num_nodes) {
+		for (time.Now() != timeout_time && len(proposals[transaction]) != num_nodes) {
 			// waits until timeout or all proposals from other nodes have arrived
 		}
 
 		// PICK HIGHEST PROPOSED VALUE AS AGREED_SEQ
-		sort.Ints(values)  // sort the values finding min and max element
-		proposed_seqs = sort.Ints(proposals[transaction])
-		agreed_seq = proposed_seqs[len(proposed_seqs)-1]
+		sort.Ints(proposals[transaction]) // sorts in place 
+		proposed_seqs := proposals[transaction]
+		agreed_seq := proposed_seqs[len(proposed_seqs)-1]
 
 		// MULTICAST AGREED SEQ_NUM TO ALL NODES 
-		for i, conn := range connections {
+		for _, conn := range connections {
 			conn.Write([]byte(f.Sprintf("%s %s %s %d\r\n", "AGREED_SEQ_FOR_PROPOSAL", node_name, transaction, agreed_seq)))
 		}
 	}
@@ -232,7 +241,7 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 		message, err := reader.ReadString('\n')
 
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error reading: ", err.Error())
+			f.Fprintln(os.Stderr, "Error reading: ", err.Error())
 			os.Exit(1)
 		} 
 
@@ -249,19 +258,18 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 		sender_node := split[1]
 
 		if (request_type == "REQUEST_FOR_PROPOSALS") {
-			priority_proposal = math.Max(proposal_counter, largest_agreed_priority) + 1
+			priority_proposal := Max(proposal_counter, largest_agreed_priority) + 1
 			proposal_counter = priority_proposal
-			// REPLY_FOR_PROPOSAL <sender node_name> <transaction> <proposed priority> 
-			other_connections[sender_node].Write([]byte(f.Sprintf("%s %s %s %d\r\n", "REPLY_FOR_PROPOSAL", node_name, transaction, priority_proposal)))
-			
 			transaction := split[2] 
 			for i := 3; i < len(split)-2; i++ {
 				transaction += split[i]
 			}
+			// REPLY_FOR_PROPOSAL <sender node_name> <transaction> <proposed priority> 
+			other_connections[sender_node].Write([]byte(f.Sprintf("%s %s %s %d\r\n", "REPLY_FOR_PROPOSAL", sender_node, transaction, priority_proposal)))
 
 			// store message in priority queue ordered by priority (proposed or agreed)
 			tx := &Message{
-				value: transaction,
+				transaction: transaction,
 				priority: priority_proposal,
 			}
 			heap.Push(&pq, tx)
@@ -270,32 +278,30 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			deliverable[transaction] = false
 
 			// REMULTICAST IT
-			for i, conn := range connections {
+			for _, conn := range connections {
 				conn.Write([]byte(f.Sprintf("%s\r\n", message)))
 			}  
 		} else if (request_type == "AGREED_SEQ_FOR_PROPOSAL") {
 
 			// AGREED_SEQ_FOR_PROPOSAL <sender node_name> <transaction string> <agreed seq number>
-			agreed_priority := split[len(split)-1]
+			agreed_priority, _ := strconv.Atoi(split[len(split)-1])
 			transaction := split[2] 
 			for i := 3; i < len(split)-2; i++ {
 				transaction += split[i]
 			}
 
 			// update largest_agreed_priority
-			largest_agreed_priority = Math.max(largest_agreed_priority, agreed_priority)
+			largest_agreed_priority = Max(largest_agreed_priority, agreed_priority)
 
 			// TODO 
 			// Upon receiving agreed (final) priority for a message ‘m’
 			// Update m’s priority to final, and accordingly reorder messages in queue.
-			all_open_txs = pq.getQueue()
+			all_open_txs := pq.getQueue()
 			for tx := range all_open_txs {
 				if (tx.transaction == transaction) {
 					pq.update(tx, agreed_priority)
 				}
 			}
-
-			// pq.update(item, item.value, 5) 
 
 			// • mark the message m as deliverable.
 			deliverable[transaction] = true
@@ -309,12 +315,12 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			}
 
 			// REMULTICAST IT
-			for i, conn := range connections {
+			for _, conn := range connections {
 				conn.Write([]byte(f.Sprintf("%s\r\n", message)))
 			} 
 		} else if (request_type == "REPLY_FOR_PROPOSAL") {
 			// appends proposed priority for message to list of proposals in map 
-			proposed_priority := split[len(split)-1]
+			proposed_priority, _ := strconv.Atoi(split[len(split)-1])
 			transaction := split[2] 
 			for i := 3; i < len(split)-2; i++ {
 				transaction += split[i]
@@ -341,14 +347,15 @@ func main() {
 
 	fileLines := parseConfigFile(identifier, config_file)
 
-	var num_nodes int = strconv.Atoi(fileLines[0]) - 1
+	num_nodes, _ := strconv.Atoi(fileLines[0])
+	num_nodes = num_nodes - 1 // don't count self node
 	var listener net.Conn
 	var connections [num_nodes]net.Conn 
  
 	// Sets up all TCP connections for node. 
 	// Each node must listen for TCP connections from other nodes, 
 	// as well as initiate a TCP connection to each of the other nodes
-	counter = 0
+	counter := 0
     for i, line := range fileLines {
 		// contains num files in file
 		if(i == 0) {continue} 
@@ -361,14 +368,14 @@ func main() {
 		if(identifier == node_name) { // set up listen for incoming connections
 			listener, error := net.Listen("tcp", host_name+":"+port_number)
 			if error != nil {
-				fmt.Fprintln(os.Stderr, "Error listening:", error.Error())
+				f.Fprintln(os.Stderr, "Error listening:", error.Error())
 				os.Exit(1)
 			}
 			defer listener.Close()
 		} else { // set up connections with all other nodes in process 
 			conn, err := net.Dial("tcp", host_name+":"+port_number)
 			for err != nil { // retry connection until it's successful
-				conn, err := net.Dial("tcp", host_name+":"+port_number)
+				conn, err = net.Dial("tcp", host_name+":"+port_number)
 			}
 			connections[counter] = conn
 			other_connections[node_name] = conn 
@@ -380,7 +387,7 @@ func main() {
 		//Listen for a new connection
 		conn, error := listener.Accept()
 		if error != nil {
-			fmt.Fprintln(os.Stderr, "Error accepting: ", error.Error())
+			f.Fprintln(os.Stderr, "Error accepting: ", error.Error())
 			os.Exit(1)
 		}
 
