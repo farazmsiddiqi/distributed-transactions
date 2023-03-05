@@ -1,16 +1,18 @@
 package main
 
 import (
+	"bufio"
+	"container/heap"
+	"fmt"
 	f "fmt"
-	"strings"
+	"reflect"
+	"net"
+	"os"
 	"sort"
 	"strconv"
-	"os"
-	"net"
-	"container/heap"
-	"bufio"
+	"strings"
 	"time"
-) 
+)
 
 // tracks account balances --> account_number:balance
 var accounts = map[string]int{}
@@ -348,8 +350,9 @@ func main() {
 
 	num_nodes, _ := strconv.Atoi(fileLines[0])
 	num_nodes = num_nodes - 1 // don't count self node
-	var listener net.Conn
-	var connections [num_nodes]net.Conn 
+	fmt.Println(reflect.TypeOf(num_nodes))
+	var listener net.Listener
+	var connections []net.Conn = make([]net.Conn, num_nodes)
  
 	// Sets up all TCP connections for node. 
 	// Each node must listen for TCP connections from other nodes, 
