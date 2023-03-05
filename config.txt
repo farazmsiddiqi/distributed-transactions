@@ -1,0 +1,4 @@
+3
+node1 sp23-cs425-3101.cs.illinois.edu 1234
+node2 sp23-cs425-3102.cs.illinois.edu 1234
+node3 sp23-cs425-3103.cs.illinois.edu 1234
