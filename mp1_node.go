@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"os"
 	"net"
-	"math"
 	"container/heap"
 	"bufio"
 	"time"
@@ -72,8 +71,8 @@ func (pq *PriorityQueue) Pop() any {
 	return message
 }
 
-func (pq *PriorityQueue) Peek() any {
-	return pq[0]
+func (pq *PriorityQueue) Peek() (message *Message) {
+	return (*pq)[0]
 }
 
 // update modifies the priority and value of an Message in the queue.
@@ -82,7 +81,7 @@ func (pq *PriorityQueue) update(message *Message, priority int) {
 	heap.Fix(pq, message.index)
 }
 
-func (pq *PriorityQueue) getQueue() {
+func (pq *PriorityQueue) getQueue() ([]*Message) {
 	return *pq
 }
 
@@ -297,7 +296,7 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			// Upon receiving agreed (final) priority for a message ‘m’
 			// Update m’s priority to final, and accordingly reorder messages in queue.
 			all_open_txs := pq.getQueue()
-			for tx := range all_open_txs {
+			for _, tx := range all_open_txs {
 				if (tx.transaction == transaction) {
 					pq.update(tx, agreed_priority)
 				}
@@ -307,11 +306,11 @@ func handleIncomingConnections(conn net.Conn, connections []net.Conn){
 			deliverable[transaction] = true
 
 			// • deliver any deliverable messages at front of priority queue
-			tx := heap.Peek(&pq).(*Message)
-			for deliverable[tx] {
+			tx := pq.Peek() // heap.Peek(&pq).(*Message)
+			for deliverable[tx.transaction] {
 				item := heap.Pop(&pq).(*Message)
 				handleTransaction(item.transaction)
-				tx = heap.Peek(&pq).(*Message)
+				tx = pq.Peek() // heap.Peek(&pq).(*Message)
 			}
 
 			// REMULTICAST IT
